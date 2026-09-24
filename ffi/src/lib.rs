@@ -63,6 +63,8 @@ pub mod error;
 #[cfg(feature = "default-engine-base")]
 pub mod rest_engine;
 #[cfg(feature = "default-engine-base")]
+pub mod storage_credential;
+#[cfg(feature = "default-engine-base")]
 pub mod table_changes;
 use error::{AllocateError, AllocateErrorFn, ExternResult, IntoExternResult};
 #[cfg(feature = "delta-kernel-unity-catalog")]
@@ -727,6 +729,9 @@ pub(crate) enum ObjectStoreBackend {
     UrlScheme,
     /// REST file API; configured via [`set_builder_rest_object_store`].
     Rest(Box<rest_engine::RestBuilderState>),
+    /// Cloud store whose credential the caller supplies and the engine refreshes; configured via
+    /// [`set_builder_storage_credential_callback`].
+    Credential(storage_credential::FfiCredentialProvider),
 }
 
 /// A builder that allows setting options on the `Engine` before actually building it.
@@ -913,6 +918,35 @@ pub unsafe extern "C" fn set_builder_with_io_concurrency(
     };
 }
 
+/// Supply the storage credential through a callback the engine invokes as the credential expires,
+/// instead of fixing it in [`set_builder_option`] keys.
+///
+/// Use this when the credential is short-lived — vended by a catalog, say — so a read outliving it
+/// can recover. The callback is invoked once here, so a credential belonging to another cloud than
+/// the table URL is reported now rather than on the first request. Other options set on the
+/// builder still apply; a credential among them is ignored in favor of the callback.
+///
+/// See [`storage_credential`] for the credential shapes and the callback contract.
+///
+/// # Safety
+///
+/// Caller must pass a valid builder handle. The handle is borrowed and remains owned by the caller
+/// regardless of the result. `context` must remain valid for the engine lifetime, and `callback`
+/// must be safe to invoke from any thread concurrently (see
+/// [`storage_credential::CStorageCredentialCallback`]).
+#[cfg(feature = "default-engine-base")]
+#[no_mangle]
+pub unsafe extern "C" fn set_builder_storage_credential_callback(
+    builder: &mut Handle<MutableFfiEngineBuilder>,
+    callback: storage_credential::CStorageCredentialCallback,
+    context: NullableCvoid,
+) {
+    let builder = unsafe { builder.as_mut() };
+    builder.object_store_backend = ObjectStoreBackend::Credential(
+        storage_credential::FfiCredentialProvider::new(callback, context, builder.allocate_fn),
+    );
+}
+
 /// Select a REST-backed object store. See [`rest_engine`] for setup, option keys, and callbacks.
 ///
 /// # Safety
@@ -1042,6 +1076,9 @@ fn get_default_engine_impl(
         ObjectStoreBackend::UrlScheme => store_from_url_opts(&url, options)?,
         ObjectStoreBackend::Rest(rest) => {
             rest_engine::build_rest_object_store(&url, &options, rest.as_ref())?
+        }
+        ObjectStoreBackend::Credential(provider) => {
+            storage_credential::store_from_credential_callback(&url, options, provider)?
         }
     };
     build_engine_from_store(store, executor_config, io_config, allocate_error)
