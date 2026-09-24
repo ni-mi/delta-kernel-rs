@@ -30,6 +30,7 @@ use self::filesystem::ObjectStoreStorageHandler;
 use self::json::DefaultJsonHandler;
 use self::parquet::DefaultParquetHandler;
 
+pub mod credentials;
 pub mod executor;
 pub mod file_stream;
 pub mod filesystem;

@@ -1411,6 +1411,7 @@ dependencies = [
  "futures",
  "hdfs-native-object-store",
  "itertools 0.14.0",
+ "percent-encoding",
  "reqwest 0.13.2",
  "rstest",
  "serde",
