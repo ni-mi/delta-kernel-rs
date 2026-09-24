@@ -89,6 +89,21 @@ impl CredentialSource {
     }
 }
 
+// Manual `Debug` that prints only the variant: every payload is a live secret that must not
+// reach logs or error output.
+impl std::fmt::Debug for StorageCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variant = match self {
+            Self::Aws { .. } => "Aws",
+            Self::GcpBearer(_) => "GcpBearer",
+            Self::AzureSas(_) => "AzureSas",
+            Self::AzureBearer(_) => "AzureBearer",
+            Self::AzureAccessKey(_) => "AzureAccessKey",
+        };
+        write!(f, "StorageCredential::{variant}(<redacted>)")
+    }
+}
+
 impl StorageCredential {
     /// The cloud this credential authenticates to, for reporting a mismatch against a URL.
     pub(crate) fn cloud(&self) -> &'static str {
@@ -253,6 +268,24 @@ mod tests {
     #[test]
     fn splitting_a_sas_without_a_value_is_an_error() {
         split_sas("sv=2021-01-01&malformed").expect_err("pair without `=` must be rejected");
+    }
+
+    #[test]
+    fn debug_output_does_not_leak_the_credential() {
+        let aws = StorageCredential::Aws {
+            key_id: "AKIAEXAMPLE".into(),
+            secret: "super-secret".into(),
+            session_token: Some("session".into()),
+        };
+        let rendered = format!(
+            "{aws:?} {:?}",
+            StorageCredential::GcpBearer("ya29.x".into())
+        );
+
+        assert!(!rendered.contains("super-secret"), "{rendered}");
+        assert!(!rendered.contains("AKIAEXAMPLE"), "{rendered}");
+        assert!(!rendered.contains("ya29.x"), "{rendered}");
+        assert!(rendered.contains("Aws"), "{rendered}");
     }
 
     #[test]
