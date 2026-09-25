@@ -270,6 +270,30 @@ mod tests {
         split_sas("sv=2021-01-01&malformed").expect_err("pair without `=` must be rejected");
     }
 
+    /// The reason this module exists: no option key reaches `with_credentials` for GCS, and an
+    /// unrecognized key is dropped rather than rejected, so a bearer token passed as a config
+    /// string vanishes and the store falls back to ambient credentials. `GoogleConfigKey` gains a
+    /// `BearerToken` variant in object_store 0.14, at which point this test fails and the GCS
+    /// special case can go.
+    #[test]
+    fn no_gcs_config_key_carries_a_bearer_token() {
+        use delta_kernel::object_store::gcp::GoogleConfigKey;
+
+        for key in [
+            "bearer_token",
+            "google_bearer_token",
+            "oauth_token",
+            "gcs_oauth_token",
+            "token",
+        ] {
+            assert!(
+                key.parse::<GoogleConfigKey>().is_err(),
+                "`{key}` now parses as a GoogleConfigKey -- object_store may have gained a bearer \
+                 token key, so the GCS branch of store_from_url_with_credentials is obsolete"
+            );
+        }
+    }
+
     #[test]
     fn debug_output_does_not_leak_the_credential() {
         let aws = StorageCredential::Aws {
